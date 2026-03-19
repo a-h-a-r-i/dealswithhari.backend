@@ -1,5 +1,5 @@
 const router = require("express").Router();
-const { getComparisons }   = require("../lib/googleShopping");
+const { getComparisons, resolveUrl, scrapeTitle, detectPlatform } = require("../lib/googleShopping");
 const { searchProducts }   = require("../lib/rapidSearch");
 
 /**
@@ -18,10 +18,6 @@ router.post("/", async (req, res) => {
     if (!url) return res.status(400).json({ error: "url is required" });
 
     const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-
-    // getComparisons handles: resolve short URL → scrape title → search
-    // We reuse its title extraction + URL resolution, then try RapidAPI first
-    const { resolveUrl, scrapeTitle, detectPlatform } = require("../lib/googleShopping");
 
     // Step 1: Resolve redirects (handles dl.flipkart.com, amzn.in, etc.)
     const resolvedUrl = await resolveUrl(normalized);
