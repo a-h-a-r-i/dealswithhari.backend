@@ -148,7 +148,51 @@ const testMatch = (req, res) => {
   }
 };
 
-// ── Helper: find existing cluster or create new one ───────────────────────────
+// ── GET /api/compare/search?title=... ────────────────────────────────────────
+// Search for similar products by title — used by frontend after link generation
+const searchByTitle = async (req, res) => {
+  try {
+    const { title } = req.query;
+    if (!title) return res.status(400).json({ error: "title query param required" });
+
+    const allClusters = await ProductCluster.find().lean();
+    const matched = [];
+
+    for (const cluster of allClusters) {
+      const { isMatch, score } = scoreProducts(
+        { title: cluster.productName, brand: cluster.brand },
+        { title, brand: "" }
+      );
+      if (isMatch) matched.push({ cluster, score });
+    }
+
+    // Sort by score descending
+    matched.sort((a, b) => b.score - a.score);
+
+    const result = await Promise.all(
+      matched.slice(0, 5).map(async ({ cluster }) => {
+        const listings = await ProductListing.find({ clusterId: cluster._id })
+          .select("site price link image")
+          .lean();
+        const sorted = listings.sort((a, b) => a.price - b.price);
+        return {
+          clusterId:   cluster._id,
+          productName: cluster.productName,
+          brand:       cluster.brand,
+          category:    cluster.category,
+          image:       cluster.image,
+          lowestPrice: sorted[0]?.price ?? null,
+          products:    sorted.map((l) => ({ site: l.site, price: l.price, link: l.link, image: l.image })),
+        };
+      })
+    );
+
+    res.json({ count: result.length, clusters: result });
+  } catch (err) {
+    console.error("searchByTitle error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
 async function findOrCreateCluster({ title, titleNorm, brand, category, image }) {
   // Load all clusters and find a match using scorer
   const allClusters = await ProductCluster.find().lean();
@@ -173,4 +217,4 @@ async function findOrCreateCluster({ title, titleNorm, brand, category, image })
   return newCluster._id;
 }
 
-module.exports = { addProducts, getCompare, getBestDeals, testMatch };
+module.exports = { addProducts, getCompare, getBestDeals, testMatch, searchByTitle };
