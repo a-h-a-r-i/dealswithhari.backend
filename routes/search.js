@@ -1,14 +1,16 @@
 const router = require("express").Router();
-const { getComparisons }      = require("../lib/googleShopping");
-const { getPriceComparisons, extractPid } = require("../lib/buyhatke");
+const { getComparisons }   = require("../lib/googleShopping");
+const { searchProducts }   = require("../lib/rapidSearch");
 
 /**
  * POST /api/search
  * Body: { url: "https://www.flipkart.com/..." }
  *
  * Strategy:
- * 1. Try BuyHatke priceData API (exact product, multiple platforms)
- * 2. Fall back to SerpAPI Google Shopping (broader but works for any URL)
+ * 1. Resolve short/redirect URL → real product URL
+ * 2. Extract product title from URL slug or page scrape
+ * 3. Try RapidAPI Real-Time Product Search (primary)
+ * 4. Fall back to SerpAPI Google Shopping
  */
 router.post("/", async (req, res) => {
   try {
@@ -17,31 +19,69 @@ router.post("/", async (req, res) => {
 
     const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
 
-    // Step 1: Try BuyHatke (exact product matching)
-    const pid = extractPid(normalized);
-    if (pid) {
-      console.log(`🎯 Trying BuyHatke for ${pid.platform}:${pid.pid}`);
-      const bhResult = await getPriceComparisons(normalized);
-      if (bhResult && bhResult.comparisons.length > 0) {
-        console.log(`✅ BuyHatke returned ${bhResult.comparisons.length} results`);
-        // Get product title from Google Shopping as well for display
-        const gsResult = await getComparisons(normalized).catch(() => null);
-        return res.json({
-          searchTitle:  gsResult?.searchTitle || pid.pid.replace(/-/g, " "),
-          searchQuery:  pid.pid,
-          comparisons:  bhResult.comparisons,
-          lowestPrice:  bhResult.lowestPrice,
-          lowestSite:   bhResult.lowestSite,
-          totalFound:   bhResult.totalFound,
-          source:       "buyhatke",
-        });
-      }
-      console.log("BuyHatke returned no results, falling back to SerpAPI");
+    // getComparisons handles: resolve short URL → scrape title → search
+    // We reuse its title extraction + URL resolution, then try RapidAPI first
+    const { resolveUrl, scrapeTitle, detectPlatform } = require("../lib/googleShopping");
+
+    // Step 1: Resolve redirects (handles dl.flipkart.com, amzn.in, etc.)
+    const resolvedUrl = await resolveUrl(normalized);
+    console.log(`🔗 Resolved: ${resolvedUrl}`);
+
+    // Step 2: Extract product title
+    const platform = detectPlatform(resolvedUrl);
+    const rawTitle = await scrapeTitle(resolvedUrl, platform);
+    console.log(`📝 Title: "${rawTitle}" (${platform})`);
+
+    if (!rawTitle) {
+      return res.json({ searchTitle: "", comparisons: [], lowestPrice: 0, lowestSite: "", totalFound: 0 });
     }
 
-    // Step 2: Fall back to SerpAPI Google Shopping
-    const result = await getComparisons(normalized);
-    res.json({ ...result, source: "serpapi" });
+    // Clean title for search
+    const searchQuery = rawTitle
+      .replace(/\(.*?\)/g, "")
+      .replace(/\[.*?\]/g, "")
+      .replace(/\b(buy|online|india|free|shipping|latest|best|offer|deal|discount|review|price)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 10)
+      .join(" ");
+
+    console.log(`🔍 Search query: "${searchQuery}"`);
+
+    // Step 3: Try RapidAPI first
+    let comparisons = [];
+    let source = "none";
+
+    if (process.env.RAPIDAPI_KEY) {
+      comparisons = await searchProducts(searchQuery);
+      if (comparisons.length > 0) {
+        source = "rapidapi";
+        console.log(`✅ RapidAPI: ${comparisons.length} results`);
+      }
+    }
+
+    // Step 4: Fall back to SerpAPI
+    if (comparisons.length === 0 && process.env.SERPAPI_KEY) {
+      console.log("⚠️  RapidAPI empty, falling back to SerpAPI...");
+      const gsResult = await getComparisons(resolvedUrl);
+      comparisons = gsResult.comparisons || [];
+      source = "serpapi";
+      console.log(`✅ SerpAPI: ${comparisons.length} results`);
+    }
+
+    comparisons.sort((a, b) => a.price - b.price);
+
+    return res.json({
+      searchTitle: rawTitle,
+      searchQuery,
+      comparisons,
+      lowestPrice: comparisons[0]?.price || 0,
+      lowestSite:  comparisons[0]?.site  || "",
+      totalFound:  comparisons.length,
+      source,
+    });
 
   } catch (err) {
     console.error("search error:", err);
