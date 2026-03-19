@@ -2,6 +2,16 @@ const router = require("express").Router();
 const Link   = require("../models/Link");
 const User   = require("../models/User");
 
+// ── Resolve userId: accepts MongoDB _id OR firebaseUid ──
+async function resolveUserId(userId) {
+  if (!userId) return null;
+  // If it looks like a Mongo ObjectId (24 hex chars), use directly
+  if (/^[a-f\d]{24}$/i.test(userId)) return userId;
+  // Otherwise treat as firebaseUid — look up the user
+  const user = await User.findOne({ firebaseUid: userId });
+  return user?._id ?? null;
+}
+
 // ── Save a generated link ──
 router.post("/", async (req, res) => {
   try {
@@ -9,7 +19,10 @@ router.post("/", async (req, res) => {
     if (!userId || !originalUrl || !affiliateLink)
       return res.status(400).json({ error: "Missing fields" });
 
-    const link = await Link.create({ userId, originalUrl, affiliateLink, shortLink, platform });
+    const resolvedUserId = await resolveUserId(userId);
+    if (!resolvedUserId) return res.status(404).json({ error: "User not found" });
+
+    const link = await Link.create({ userId: resolvedUserId, originalUrl, affiliateLink, shortLink, platform });
     res.status(201).json({ link });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -19,7 +32,9 @@ router.post("/", async (req, res) => {
 // ── Get all links for a user ──
 router.get("/:userId", async (req, res) => {
   try {
-    const links = await Link.find({ userId: req.params.userId }).sort({ createdAt: -1 });
+    const resolvedUserId = await resolveUserId(req.params.userId);
+    if (!resolvedUserId) return res.json({ links: [] });
+    const links = await Link.find({ userId: resolvedUserId }).sort({ createdAt: -1 });
     res.json({ links });
   } catch (err) {
     res.status(500).json({ error: err.message });
