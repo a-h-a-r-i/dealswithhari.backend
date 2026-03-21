@@ -102,6 +102,10 @@ router.post("/setup-pin", async (req, res) => {
     const { firebaseUid, mobile, pin, referralCode } = req.body;
     if (!firebaseUid || !mobile || !pin) return res.status(400).json({ error: "Missing fields" });
 
+    // Check if mobile is already used by a DIFFERENT user
+    const existing = await User.findOne({ mobile, firebaseUid: { $ne: firebaseUid } });
+    if (existing) return res.status(409).json({ error: "Mobile number already registered with another account" });
+
     const update = { mobile, pin };
 
     // Apply referral only if not already referred
@@ -174,7 +178,12 @@ router.patch("/update", async (req, res) => {
     const user  = await User.findOne(query);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    if (mobile) user.mobile = mobile;
+    if (mobile) {
+      // Check mobile not used by another user
+      const taken = await User.findOne({ mobile, _id: { $ne: user._id } });
+      if (taken) return res.status(409).json({ error: "Mobile number already registered with another account" });
+      user.mobile = mobile;
+    }
     if (newPin) {
       if (user.pin && user.pin !== currentPin)
         return res.status(400).json({ error: "Current PIN is incorrect" });
