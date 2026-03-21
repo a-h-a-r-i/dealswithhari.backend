@@ -1,7 +1,33 @@
 const router = require("express").Router();
 const User   = require("../models/User");
 
-// ── Validate a referral code — returns referrer's display name ──
+// ── Get referral stats for a user ──
+router.get("/referral-stats/:userId", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select("referralCode referralCount displayName");
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Find all users referred by this user
+    const referred = await User.find({ referredBy: user._id })
+      .select("displayName email createdAt")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      referralCode:  user.referralCode,
+      referralCount: user.referralCount,
+      earned:        referred.length * 100,   // ₹100 per referral
+      pending:       0,
+      history: referred.map(r => ({
+        name:   r.displayName || r.email.split("@")[0],
+        date:   r.createdAt,
+        amount: 100,
+        status: "credited",
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 router.get("/validate-referral/:code", async (req, res) => {
   try {
     const user = await User.findOne({ referralCode: req.params.code.toUpperCase() });
