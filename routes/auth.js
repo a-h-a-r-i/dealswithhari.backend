@@ -1,7 +1,22 @@
 const router = require("express").Router();
 const User   = require("../models/User");
 
-// ── Get referral stats for a user ──
+// ── One-time migration: generate referral codes for all existing users ──
+router.post("/migrate-referral-codes", async (req, res) => {
+  try {
+    const users = await User.find({ referralCode: { $in: [null, undefined, ""] } });
+    let count = 0;
+    for (const user of users) {
+      await user.save(); // triggers pre-save hook
+      count++;
+    }
+    res.json({ migrated: count });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Validate a referral code — returns referrer's display name ──
 router.get("/referral-stats/:userId", async (req, res) => {
   try {
     const user = await User.findById(req.params.userId).select("referralCode referralCount displayName");
@@ -53,10 +68,11 @@ router.post("/google", async (req, res) => {
         user.firebaseUid = firebaseUid;
         user.displayName = displayName || user.displayName;
         user.photoURL    = photoURL    || user.photoURL;
-        await user.save();
+        // Generate referral code if missing (existing user)
+        if (!user.referralCode) await user.save(); // triggers pre-save hook
+        else await user.save();
       } else {
         isNew = true;
-        // Resolve referrer
         let referredBy = null;
         if (referralCode) {
           const referrer = await User.findOne({ referralCode: referralCode.toUpperCase() });
@@ -66,6 +82,11 @@ router.post("/google", async (req, res) => {
           }
         }
         user = await User.create({ firebaseUid, email, displayName, photoURL, referredBy });
+      }
+    } else {
+      // Existing logged-in user — generate referral code if missing
+      if (!user.referralCode) {
+        await user.save(); // triggers pre-save hook to generate code
       }
     }
 
