@@ -17,6 +17,13 @@ app.use("/api/auth",    require("./routes/auth"));
 app.use("/api/links",   require("./routes/links"));
 app.use("/api/compare", require("./routes/compare"));
 app.use("/api/search",  require("./routes/search"));
+app.use("/api/admin",   require("./routes/admin"));
+
+// Public: active deals & posters for homepage
+const Deal   = require("./models/Deal");
+const Poster = require("./models/Poster");
+app.get("/api/deals",   async (req, res) => { try { const deals   = await Deal.find({ active: true }).sort({ createdAt: -1 }); res.json({ deals }); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.get("/api/posters", async (req, res) => { try { const posters = await Poster.find({ active: true }).sort({ order: 1 }); res.json({ posters }); } catch (e) { res.status(500).json({ error: e.message }); } });
 
 // Fast URL resolver — follows redirects server-side (handles dl.flipkart.com etc.)
 app.post("/api/resolve", async (req, res) => {
