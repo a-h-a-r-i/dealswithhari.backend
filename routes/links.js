@@ -5,9 +5,7 @@ const User   = require("../models/User");
 // ── Resolve userId: accepts MongoDB _id OR firebaseUid ──
 async function resolveUserId(userId) {
   if (!userId) return null;
-  // If it looks like a Mongo ObjectId (24 hex chars), use directly
   if (/^[a-f\d]{24}$/i.test(userId)) return userId;
-  // Otherwise treat as firebaseUid — look up the user
   const user = await User.findOne({ firebaseUid: userId });
   return user?._id ?? null;
 }
@@ -22,26 +20,17 @@ router.post("/", async (req, res) => {
     const resolvedUserId = await resolveUserId(userId);
     if (!resolvedUserId) return res.status(404).json({ error: "User not found" });
 
-    const link = await Link.create({ userId: resolvedUserId, originalUrl, affiliateLink, shortLink, platform, productTitle: productTitle || "", productImage: productImage || "", productPrice: productPrice || 0 });
+    const link = await Link.create({
+      userId: resolvedUserId, originalUrl, affiliateLink, shortLink, platform,
+      productTitle: productTitle || "", productImage: productImage || "", productPrice: productPrice || 0
+    });
     res.status(201).json({ link });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── Get all links for a user ──
-router.get("/:userId", async (req, res) => {
-  try {
-    const resolvedUserId = await resolveUserId(req.params.userId);
-    if (!resolvedUserId) return res.json({ links: [] });
-    const links = await Link.find({ userId: resolvedUserId }).sort({ createdAt: -1 });
-    res.json({ links });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Update link metadata (product title/image/price) ──
+// ── Update link metadata — MUST be before GET /:userId to avoid conflict ──
 router.patch("/:linkId", async (req, res) => {
   try {
     const { productTitle, productImage, productPrice } = req.body;
@@ -67,7 +56,7 @@ router.delete("/:linkId", async (req, res) => {
   }
 });
 
-// ── Track a click (called when Buy Now is clicked) ──
+// ── Track a click ──
 router.post("/:linkId/click", async (req, res) => {
   try {
     const link = await Link.findByIdAndUpdate(
@@ -76,10 +65,20 @@ router.post("/:linkId/click", async (req, res) => {
       { new: true }
     );
     if (!link) return res.status(404).json({ error: "Link not found" });
-
-    // Update user total clicks
     await User.findByIdAndUpdate(link.userId, { $inc: { totalClicks: 1 } });
     res.json({ clicks: link.clicks });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Get all links for a user — LAST because /:userId is a catch-all ──
+router.get("/:userId", async (req, res) => {
+  try {
+    const resolvedUserId = await resolveUserId(req.params.userId);
+    if (!resolvedUserId) return res.json({ links: [] });
+    const links = await Link.find({ userId: resolvedUserId }).sort({ createdAt: -1 });
+    res.json({ links });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
