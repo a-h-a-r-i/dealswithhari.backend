@@ -15,14 +15,14 @@ async function resolveUserId(userId) {
 // ── Save a generated link ──
 router.post("/", async (req, res) => {
   try {
-    const { userId, originalUrl, affiliateLink, shortLink, platform } = req.body;
+    const { userId, originalUrl, affiliateLink, shortLink, platform, productTitle, productImage, productPrice } = req.body;
     if (!userId || !originalUrl || !affiliateLink)
       return res.status(400).json({ error: "Missing fields" });
 
     const resolvedUserId = await resolveUserId(userId);
     if (!resolvedUserId) return res.status(404).json({ error: "User not found" });
 
-    const link = await Link.create({ userId: resolvedUserId, originalUrl, affiliateLink, shortLink, platform });
+    const link = await Link.create({ userId: resolvedUserId, originalUrl, affiliateLink, shortLink, platform, productTitle: productTitle || "", productImage: productImage || "", productPrice: productPrice || 0 });
     res.status(201).json({ link });
   } catch (err) {
     res.status(500).json({ error: err.message });
