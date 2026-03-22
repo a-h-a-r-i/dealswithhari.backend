@@ -41,6 +41,22 @@ router.get("/:userId", async (req, res) => {
   }
 });
 
+// ── Update link metadata (product title/image/price) ──
+router.patch("/:linkId", async (req, res) => {
+  try {
+    const { productTitle, productImage, productPrice } = req.body;
+    const update = {};
+    if (productTitle !== undefined) update.productTitle = productTitle;
+    if (productImage !== undefined) update.productImage = productImage;
+    if (productPrice !== undefined) update.productPrice = productPrice;
+    const link = await Link.findByIdAndUpdate(req.params.linkId, update, { new: true });
+    if (!link) return res.status(404).json({ error: "Link not found" });
+    res.json({ link });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Delete a link ──
 router.delete("/:linkId", async (req, res) => {
   try {
