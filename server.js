@@ -18,6 +18,7 @@ app.use("/api/links",   require("./routes/links"));
 app.use("/api/compare", require("./routes/compare"));
 app.use("/api/search",  require("./routes/search"));
 app.use("/api/admin",   require("./routes/admin"));
+app.use("/api/offers",  require("./routes/flipkartOffers"));
 
 // Public: active deals & posters for homepage
 const Deal   = require("./models/Deal");
